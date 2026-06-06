@@ -11,9 +11,9 @@ import os
 app = Flask(__name__)
 
 # ── RUTA A LA BASE DE DATOS ───────────────────────────────
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH  = os.path.join(BASE_DIR, 'base_ping_pong.sqlite')
-MOD_PATH = os.path.join(BASE_DIR, 'analysis', 'modelo_avanzado.pkl')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH  = os.path.join(BASE_DIR, '..', 'base_ping_pong.sqlite')
+MOD_PATH = os.path.join(BASE_DIR, '..', 'analysis', 'modelo_avanzado.pkl')
 
 # ── CARGAR MODELO ─────────────────────────────────────────
 with open(MOD_PATH, 'rb') as f:
