@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Czech Liga Pro — Sistema de Prediccion</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+    <div class="header-content">
+        <h1>🏓 Czech Liga Pro</h1>
+        <p>Sistema de Prediccion Profesional</p>
+    </div>
+    <div class="header-stats">
+        <div class="stat-box">
+            <span class="stat-num">{{ stats.total_partidos }}</span>
+            <span class="stat-label">Partidos analizados</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-num">{{ stats.total_jugadores }}</span>
+            <span class="stat-label">Jugadores</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-num">70%</span>
+            <span class="stat-label">Accuracy del modelo</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-num">{{ stats.fecha }}</span>
+            <span class="stat-label">Ultima actualizacion</span>
+        </div>
+    </div>
+</header>
+
+<!-- NAVEGACION -->
+<nav>
+    <button class="nav-btn active" onclick="mostrarSeccion('predictor')">Predictor</button>
+    <button class="nav-btn" onclick="mostrarSeccion('live')">En Vivo</button>
+    <button class="nav-btn" onclick="mostrarSeccion('jugadores')">Jugadores</button>
+    <button class="nav-btn" onclick="mostrarSeccion('predicciones')">Predicciones del dia</button>
+</nav>
+
+<main>
+
+<!-- SECCION PREDICTOR -->
+<section id="predictor" class="seccion activa">
+    <h2>Predictor de Partidos</h2>
+    <p class="subtitulo">Ingresa los jugadores para obtener el pronostico completo</p>
+
+    <div class="form-card">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Jugador Local</label>
+                <input type="text" id="local" placeholder="Ej: Vejvoda V." list="lista-jugadores">
+                <datalist id="lista-jugadores"></datalist>
+            </div>
+            <div class="vs-label">VS</div>
+            <div class="form-group">
+                <label>Jugador Visitante</label>
+                <input type="text" id="visitante" placeholder="Ej: Kolisnyk O." list="lista-jugadores">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Hora del partido</label>
+                <input type="number" id="hora" value="15" min="0" max="23">
+            </div>
+        </div>
+        <button class="btn-predecir" onclick="predecir()">PREDECIR PARTIDO</button>
+    </div>
+
+    <div id="resultado-predictor" class="resultado-container" style="display:none">
+
+        <div class="resultado-grid">
+
+            <!-- Ganador -->
+            <div class="resultado-card ganador-card">
+                <h3>Ganador del Partido</h3>
+                <div class="ganador-nombre" id="res-ganador"></div>
+                <div class="probabilidades">
+                    <div class="prob-bar-container">
+                        <span id="res-local-nombre"></span>
+                        <div class="prob-bar">
+                            <div class="prob-fill local-fill" id="res-prob-local-bar"></div>
+                        </div>
+                        <span id="res-prob-local"></span>
+                    </div>
+                    <div class="prob-bar-container">
+                        <span id="res-visit-nombre"></span>
+                        <div class="prob-bar">
+                            <div class="prob-fill visit-fill" id="res-prob-visit-bar"></div>
+                        </div>
+                        <span id="res-prob-visit"></span>
+                    </div>
+                </div>
+                <div class="confianza-badge" id="res-confianza"></div>
+                <div class="detalle">
+                    <span>Win rate: <b id="res-wr-local"></b> vs <b id="res-wr-visit"></b></span>
+                    <span>H2H: <b id="res-h2h"></b></span>
+                </div>
+            </div>
+
+            <!-- Set 1 -->
+            <div class="resultado-card">
+                <h3>Ganador Set 1</h3>
+                <div class="ganador-nombre small" id="res-ganador-set1"></div>
+                <div class="confianza-badge" id="res-conf-set1"></div>
+            </div>
+
+            <!-- Resultado exacto -->
+            <div class="resultado-card">
+                <h3>Resultado Exacto</h3>
+                <div class="ganador-nombre small" id="res-resultado"></div>
+                <div id="res-top3" class="top3-lista"></div>
+            </div>
+
+            <!-- Sets y puntos -->
+            <div class="resultado-card">
+                <h3>Sets y Puntos</h3>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-valor" id="res-sets"></span>
+                        <span class="stat-etiqueta">Sets esperados</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-valor" id="res-puntos"></span>
+                        <span class="stat-etiqueta">Puntos totales</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-valor" id="res-puntos-set"></span>
+                        <span class="stat-etiqueta">Puntos por set</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</section>
+
+<!-- SECCION EN VIVO -->
+<section id="live" class="seccion">
+    <h2>Predictor En Vivo</h2>
+    <p class="subtitulo">Ingresa el marcador actual para recibir recomendaciones de apuesta</p>
+
+    <div class="form-card">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Jugador Local</label>
+                <input type="text" id="live-local" placeholder="Ej: Postelt V." list="lista-jugadores">
+            </div>
+            <div class="vs-label">VS</div>
+            <div class="form-group">
+                <label>Jugador Visitante</label>
+                <input type="text" id="live-visitante" placeholder="Ej: Parhomenko D." list="lista-jugadores">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Set actual</label>
+                <input type="number" id="live-set" value="1" min="1" max="5">
+            </div>
+            <div class="form-group">
+                <label>Puntos local</label>
+                <input type="number" id="live-marc-local" value="0" min="0">
+            </div>
+            <div class="form-group">
+                <label>Puntos visitante</label>
+                <input type="number" id="live-marc-visit" value="0" min="0">
+            </div>
+        </div>
+        <button class="btn-predecir" onclick="predecirLive()">ANALIZAR EN VIVO</button>
+    </div>
+
+    <div id="resultado-live" class="resultado-container" style="display:none">
+        <div class="alerta-box" id="live-alerta"></div>
+        <div id="live-recomendaciones" class="recomendaciones-grid"></div>
+    </div>
+</section>
+
+<!-- SECCION JUGADORES -->
+<section id="jugadores" class="seccion">
+    <h2>Ranking de Jugadores</h2>
+    <p class="subtitulo">Estadisticas de todos los jugadores de Czech Liga Pro</p>
+    <div class="tabla-container">
+        <table id="tabla-jugadores">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Jugador</th>
+                    <th>Partidos</th>
+                    <th>Victorias</th>
+                    <th>Win Rate</th>
+                    <th>Sets Ratio</th>
+                    <th>Racha (5)</th>
+                </tr>
+            </thead>
+            <tbody id="body-jugadores"></tbody>
+        </table>
+    </div>
+</section>
+
+<!-- SECCION PREDICCIONES DEL DIA -->
+<section id="predicciones" class="seccion">
+    <h2>Predicciones del Dia</h2>
+    <p class="subtitulo">Partidos pendientes con su pronostico automatico</p>
+    <div id="lista-predicciones" class="predicciones-grid"></div>
+</section>
+
+</main>
+
+<footer>
+    <p>Czech Liga Pro — Sistema de Prediccion Profesional | Accuracy 70%</p>
+</footer>
+
+<script>
+// ── NAVEGACION ─────────────────────────────────────────────
+function mostrarSeccion(id) {
+    document.querySelectorAll('.seccion').forEach(s => s.classList.remove('activa'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(id).classList.add('activa');
+    event.target.classList.add('active');
+
+    if (id === 'jugadores') cargarJugadores();
+    if (id === 'predicciones') cargarPredicciones();
+}
+
+// ── CARGAR JUGADORES PARA AUTOCOMPLETE ─────────────────────
+fetch('/api/jugadores')
+    .then(r => r.json())
+    .then(data => {
+        const lista = document.getElementById('lista-jugadores');
+        data.forEach(j => {
+            const opt = document.createElement('option');
+            opt.value = j.jugador;
+            lista.appendChild(opt);
+        });
+    });
+
+// ── PREDICTOR ──────────────────────────────────────────────
+function predecir() {
+    const local     = document.getElementById('local').value.trim();
+    const visitante = document.getElementById('visitante').value.trim();
+    const hora      = parseInt(document.getElementById('hora').value);
+
+    if (!local || !visitante) {
+        alert('Ingresa ambos jugadores');
+        return;
+    }
+
+    fetch('/api/predecir', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({local, visitante, hora})
+    })
+    .then(r => r.json())
+    .then(d => {
+        document.getElementById('resultado-predictor').style.display = 'block';
+
+        document.getElementById('res-ganador').textContent       = d.ganador;
+        document.getElementById('res-local-nombre').textContent  = d.local;
+        document.getElementById('res-visit-nombre').textContent  = d.visitante;
+        document.getElementById('res-prob-local').textContent    = d.prob_local + '%';
+        document.getElementById('res-prob-visit').textContent    = d.prob_visitante + '%';
+        document.getElementById('res-prob-local-bar').style.width = d.prob_local + '%';
+        document.getElementById('res-prob-visit-bar').style.width = d.prob_visitante + '%';
+        document.getElementById('res-wr-local').textContent     = d.wr_local + '%';
+        document.getElementById('res-wr-visit').textContent     = d.wr_visitante + '%';
+        document.getElementById('res-h2h').textContent          = d.h2h_partidos + ' partidos (' + d.h2h_score + '% local)';
+        document.getElementById('res-ganador-set1').textContent = d.ganador_set1;
+        document.getElementById('res-conf-set1').textContent    = d.conf_set1 + '%';
+        document.getElementById('res-resultado').textContent    = d.resultado_pred;
+        document.getElementById('res-sets').textContent         = d.sets_pred;
+        document.getElementById('res-puntos').textContent       = '~' + d.puntos_totales;
+        document.getElementById('res-puntos-set').textContent   = '~' + d.puntos_por_set;
+
+        const conf = d.confianza;
+        const badge = document.getElementById('res-confianza');
+        badge.textContent = conf + '% ' + (conf >= 80 ? 'ALTA' : conf >= 65 ? 'MEDIA' : 'BAJA');
+        badge.className   = 'confianza-badge ' + (conf >= 80 ? 'alta' : conf >= 65 ? 'media' : 'baja');
+
+        const top3 = document.getElementById('res-top3');
+        top3.innerHTML = d.top3_resultados.map(([res, prob]) =>
+            `<div class="top3-item"><span>${res}</span><span>${prob}%</span></div>`
+        ).join('');
+    })
+    .catch(() => alert('Error al predecir. Verifica los nombres de los jugadores.'));
+}
+
+// ── PREDICTOR EN VIVO ──────────────────────────────────────
+function predecirLive() {
+    const local      = document.getElementById('live-local').value.trim();
+    const visitante  = document.getElementById('live-visitante').value.trim();
+    const set_actual = parseInt(document.getElementById('live-set').value);
+    const marc_local = parseInt(document.getElementById('live-marc-local').value);
+    const marc_visit = parseInt(document.getElementById('live-marc-visit').value);
+
+    if (!local || !visitante) {
+        alert('Ingresa ambos jugadores');
+        return;
+    }
+
+    fetch('/api/live', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({local, visitante, set_actual, marc_local, marc_visit})
+    })
+    .then(r => r.json())
+    .then(d => {
+        document.getElementById('resultado-live').style.display = 'block';
+        document.getElementById('live-alerta').textContent = '⚡ ' + d.alerta;
+
+        const grid = document.getElementById('live-recomendaciones');
+        grid.innerHTML = d.recomendaciones.map(r => {
+            if (r.estado === 'SUPERADA') {
+                return `<div class="rec-card superada">
+                    <h4>Linea ${r.linea}</h4>
+                    <p>${r.mensaje}</p>
+                </div>`;
+            }
+            return `<div class="rec-card ${r.color === 'green' ? 'recomendada' : 'no-recomendada'}">
+                <h4>Linea ${r.linea}</h4>
+                <div class="rec-probs">
+                    <span>Over: <b>${r.over}%</b></span>
+                    <span>Under: <b>${r.under}%</b></span>
+                </div>
+                <div class="rec-accion">${r.accion}</div>
+                <small>Fuente: ${r.fuente} | Faltan ${r.restantes} pts</small>
+            </div>`;
+        }).join('');
+    })
+    .catch(() => alert('Error al analizar.'));
+}
+
+// ── CARGAR TABLA JUGADORES ─────────────────────────────────
+function cargarJugadores() {
+    fetch('/api/jugadores')
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('body-jugadores');
+            tbody.innerHTML = data.map((j, i) => `
+                <tr>
+                    <td>${i + 1}</td>
+                    <td><b>${j.jugador}</b></td>
+                    <td>${j.partidos}</td>
+                    <td>${j.victorias}</td>
+                    <td><span class="wr-badge ${j.win_rate >= 0.7 ? 'alta' : j.win_rate >= 0.5 ? 'media' : 'baja'}">${(j.win_rate * 100).toFixed(1)}%</span></td>
+                    <td>${(j.sets_ratio * 100).toFixed(1)}%</td>
+                    <td>${j.victorias_ultimos_5}/5</td>
+                </tr>
+            `).join('');
+        });
+}
+
+// ── CARGAR PREDICCIONES DEL DIA ────────────────────────────
+function cargarPredicciones() {
+    fetch('/api/predicciones')
+        .then(r => r.json())
+        .then(data => {
+            const grid = document.getElementById('lista-predicciones');
+            if (data.length === 0) {
+                grid.innerHTML = '<p class="sin-datos">No hay predicciones para hoy.</p>';
+                return;
+            }
+            grid.innerHTML = data.map(p => {
+                const conf = p.confianza;
+                const nivel = conf >= 80 ? 'alta' : conf >= 65 ? 'media' : 'baja';
+                const nivelTxt = conf >= 80 ? 'ALTA' : conf >= 65 ? 'MEDIA' : 'BAJA';
+                return `
+                <div class="pred-card ${nivel}">
+                    <div class="pred-header">
+                        <span class="confianza-badge ${nivel}">${conf}% ${nivelTxt}</span>
+                    </div>
+                    <div class="pred-partido">${p.local} vs ${p.visitante}</div>
+                    <div class="pred-ganador">Ganador: <b>${p.prediccion}</b></div>
+                    <div class="pred-probs">${p.prob_local}% — ${p.prob_visitante}%</div>
+                </div>`;
+            }).join('');
+        });
+}
+</script>
+</body>
+</html>
