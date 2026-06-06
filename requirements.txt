@@ -1,5 +1,5 @@
 flask
-pandas
 numpy
 scikit-learn
 gunicorn
+pandas==2.2.2
