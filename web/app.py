@@ -7,6 +7,7 @@ import pickle
 import numpy as np
 from datetime import datetime
 import os
+import anthropic
 
 app = Flask(__name__)
 
@@ -72,7 +73,7 @@ def construir_features(local, visitante, hora, features, h2h):
     fv = get_stats(visitante, features)
     h2h_score, h2h_n = get_h2h(local, visitante, h2h)
 
-    conn   = get_conexion()
+    conn    = get_conexion()
     df_hist = pd.read_sql("SELECT * FROM matches_finalizados", conn)
     conn.close()
 
@@ -167,10 +168,10 @@ def api_predecir():
 
     X = construir_features(local, visitante, hora, features, h2h)
 
-    prob_gana  = modelos['ganador_partido'].predict_proba(X)[0]
-    prob_set1  = modelos['ganador_set1'].predict_proba(X)[0]
-    prob_res   = modelos['resultado_exacto'].predict_proba(X)[0]
-    prob_sets  = modelos['total_sets'].predict_proba(X)[0]
+    prob_gana   = modelos['ganador_partido'].predict_proba(X)[0]
+    prob_set1   = modelos['ganador_set1'].predict_proba(X)[0]
+    prob_res    = modelos['resultado_exacto'].predict_proba(X)[0]
+    prob_sets   = modelos['total_sets'].predict_proba(X)[0]
     puntos_pred = round(modelos['puntos_totales'].predict(X)[0], 1)
 
     clases_res  = le_res.classes_
@@ -181,24 +182,24 @@ def api_predecir():
     )[:3]
 
     return jsonify({
-        'local'            : local,
-        'visitante'        : visitante,
-        'prob_local'       : round(prob_gana[1] * 100, 1),
-        'prob_visitante'   : round(prob_gana[0] * 100, 1),
-        'ganador'          : local if prob_gana[1] > prob_gana[0] else visitante,
-        'confianza'        : round(max(prob_gana) * 100, 1),
-        'ganador_set1'     : local if prob_set1[1] > prob_set1[0] else visitante,
-        'conf_set1'        : round(max(prob_set1) * 100, 1),
-        'resultado_pred'   : clases_res[np.argmax(prob_res)],
-        'top3_resultados'  : top3_res,
-        'sets_pred'        : clases_sets[np.argmax(prob_sets)],
-        'conf_sets'        : round(max(prob_sets) * 100, 1),
-        'puntos_totales'   : puntos_pred,
-        'puntos_por_set'   : round(puntos_pred / 4, 1),
-        'h2h_partidos'     : h2h_n,
-        'h2h_score'        : round(h2h_score * 100, 1),
-        'wr_local'         : round(fl['win_rate'] * 100, 1),
-        'wr_visitante'     : round(fv['win_rate'] * 100, 1),
+        'local'          : local,
+        'visitante'      : visitante,
+        'prob_local'     : round(prob_gana[1] * 100, 1),
+        'prob_visitante' : round(prob_gana[0] * 100, 1),
+        'ganador'        : local if prob_gana[1] > prob_gana[0] else visitante,
+        'confianza'      : round(max(prob_gana) * 100, 1),
+        'ganador_set1'   : local if prob_set1[1] > prob_set1[0] else visitante,
+        'conf_set1'      : round(max(prob_set1) * 100, 1),
+        'resultado_pred' : clases_res[np.argmax(prob_res)],
+        'top3_resultados': top3_res,
+        'sets_pred'      : clases_sets[np.argmax(prob_sets)],
+        'conf_sets'      : round(max(prob_sets) * 100, 1),
+        'puntos_totales' : puntos_pred,
+        'puntos_por_set' : round(puntos_pred / 4, 1),
+        'h2h_partidos'   : h2h_n,
+        'h2h_score'      : round(h2h_score * 100, 1),
+        'wr_local'       : round(fl['win_rate'] * 100, 1),
+        'wr_visitante'   : round(fv['win_rate'] * 100, 1),
     })
 
 @app.route('/api/live', methods=['POST'])
@@ -211,7 +212,7 @@ def api_live():
     marc_visit = int(data.get('marc_visit', 0))
     sets_ant   = data.get('sets_anteriores', [])
 
-    conn   = get_conexion()
+    conn    = get_conexion()
     df_hist = pd.read_sql("SELECT * FROM matches_finalizados", conn)
     conn.close()
 
@@ -224,7 +225,7 @@ def api_live():
                 pd.to_numeric(df_hist[col_v], errors='coerce')
             )
 
-    col_set = f'puntos_set{set_actual}'
+    col_set  = f'puntos_set{set_actual}'
     mask_h2h = (
         ((df_hist['jugador_local'] == local) & (df_hist['jugador_visitante'] == visitante)) |
         ((df_hist['jugador_local'] == visitante) & (df_hist['jugador_visitante'] == local))
@@ -246,7 +247,7 @@ def api_live():
             })
             continue
 
-        datos = df_h2h_set if len(df_h2h_set) >= 3 else df_general
+        datos  = df_h2h_set if len(df_h2h_set) >= 3 else df_general
         fuente = 'H2H' if len(df_h2h_set) >= 3 else 'General'
 
         over  = round((datos > linea).sum() / len(datos) * 100, 1) if len(datos) > 0 else 50
@@ -286,6 +287,47 @@ def api_live():
         'puntos_actuales' : puntos_actuales,
         'sets_anteriores' : sets_ant,
     })
+
+@app.route('/api/chat', methods=['POST'])
+def api_chat():
+    data    = request.json
+    mensaje = data.get('mensaje', '')
+
+    try:
+        conn     = get_conexion()
+        features = pd.read_sql(
+            "SELECT jugador, partidos, victorias, win_rate, sets_ratio, victorias_ultimos_5 "
+            "FROM player_features ORDER BY win_rate DESC LIMIT 10",
+            conn
+        )
+        total = pd.read_sql("SELECT COUNT(*) as n FROM matches_finalizados", conn)
+        conn.close()
+
+        top_jugadores  = features.head(5).to_dict(orient='records')
+        total_partidos = int(total.iloc[0]['n'])
+
+        contexto = f"""Eres un asistente experto en Czech Liga Pro de tenis de mesa.
+Tienes acceso a datos reales de la liga:
+
+- Total de partidos analizados: {total_partidos}
+- Top 5 jugadores por win rate:
+{chr(10).join([f"  {i+1}. {j['jugador']} — Win Rate: {round(j['win_rate']*100,1)}%, Partidos: {j['partidos']}, Racha ultimos 5: {j['victorias_ultimos_5']}/5" for i, j in enumerate(top_jugadores)])}
+
+Responde en español de forma concisa y profesional. Maximo 3 oraciones.
+Si preguntan por un jugador especifico que no esta en el top 5, indica que pueden ver mas datos usando el Predictor.
+"""
+    except Exception:
+        contexto = "Eres un asistente experto en Czech Liga Pro de tenis de mesa. Responde en español de forma concisa."
+
+    client    = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
+    respuesta = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=300,
+        system=contexto,
+        messages=[{"role": "user", "content": mensaje}]
+    )
+
+    return jsonify({'respuesta': respuesta.content[0].text})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))

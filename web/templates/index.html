@@ -5,6 +5,127 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Czech Liga Pro — Sistema de Prediccion</title>
     <link rel="stylesheet" href="/static/style.css">
+    <style>
+        /* ── CHAT IA ─────────────────────────────────────────── */
+        #chat-bubble {
+            position: fixed;
+            bottom: 28px;
+            right: 28px;
+            width: 58px;
+            height: 58px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #00e676, #1565c0);
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            box-shadow: 0 4px 20px rgba(0,230,118,0.4);
+            z-index: 1000;
+            transition: transform 0.2s;
+        }
+        #chat-bubble:hover { transform: scale(1.1); }
+
+        #chat-panel {
+            position: fixed;
+            bottom: 100px;
+            right: 28px;
+            width: 360px;
+            max-height: 520px;
+            background: #0d1117;
+            border: 1px solid #1e3a5f;
+            border-radius: 16px;
+            display: none;
+            flex-direction: column;
+            z-index: 1000;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+            overflow: hidden;
+        }
+        #chat-panel.abierto { display: flex; }
+
+        .chat-header {
+            background: linear-gradient(135deg, #1565c0, #0d47a1);
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: space-between;
+        }
+        .chat-header-left { display: flex; align-items: center; gap: 10px; }
+        .chat-header h4 { margin: 0; color: #fff; font-size: 15px; }
+        .chat-header small { color: #90caf9; font-size: 11px; display: block; }
+        .chat-dot { width: 8px; height: 8px; border-radius: 50%; background: #00e676; flex-shrink: 0; }
+        .chat-close { background: none; border: none; color: #90caf9; font-size: 18px; cursor: pointer; padding: 0; }
+
+        #chat-mensajes {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 340px;
+        }
+        #chat-mensajes::-webkit-scrollbar { width: 4px; }
+        #chat-mensajes::-webkit-scrollbar-track { background: transparent; }
+        #chat-mensajes::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 4px; }
+
+        .msg { max-width: 85%; padding: 10px 13px; border-radius: 12px; font-size: 13px; line-height: 1.5; }
+        .msg-ia { background: #1e3a5f; color: #e3f2fd; align-self: flex-start; border-bottom-left-radius: 3px; }
+        .msg-user { background: #1565c0; color: #fff; align-self: flex-end; border-bottom-right-radius: 3px; }
+        .msg-typing { background: #1e3a5f; color: #90caf9; align-self: flex-start; font-style: italic; }
+
+        .chat-sugerencias {
+            padding: 6px 14px 0;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .sug-btn {
+            background: #1e3a5f;
+            border: 1px solid #1565c0;
+            color: #90caf9;
+            border-radius: 20px;
+            padding: 4px 10px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+        .sug-btn:hover { background: #1565c0; color: #fff; }
+
+        .chat-input-area {
+            padding: 12px 14px;
+            display: flex;
+            gap: 8px;
+            border-top: 1px solid #1e3a5f;
+        }
+        #chat-input {
+            flex: 1;
+            background: #161b22;
+            border: 1px solid #1e3a5f;
+            border-radius: 20px;
+            padding: 8px 14px;
+            color: #e3f2fd;
+            font-size: 13px;
+            outline: none;
+        }
+        #chat-input:focus { border-color: #1565c0; }
+        #chat-send {
+            background: linear-gradient(135deg, #00e676, #1565c0);
+            border: none;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+    </style>
 </head>
 <body>
 
@@ -72,9 +193,7 @@
     </div>
 
     <div id="resultado-predictor" class="resultado-container" style="display:none">
-
         <div class="resultado-grid">
-
             <!-- Ganador -->
             <div class="resultado-card ganador-card">
                 <h3>Ganador del Partido</h3>
@@ -134,7 +253,6 @@
                     </div>
                 </div>
             </div>
-
         </div>
     </div>
 </section>
@@ -214,6 +332,37 @@
     <p>Czech Liga Pro — Sistema de Prediccion Profesional | Accuracy 70%</p>
 </footer>
 
+<!-- ── CHAT IA ─────────────────────────────────────────────── -->
+<button id="chat-bubble" onclick="toggleChat()" title="Asistente IA">🤖</button>
+
+<div id="chat-panel">
+    <div class="chat-header">
+        <div class="chat-header-left">
+            <div class="chat-dot"></div>
+            <div>
+                <h4>Asistente IA</h4>
+                <small>Czech Liga Pro · Análisis en tiempo real</small>
+            </div>
+        </div>
+        <button class="chat-close" onclick="toggleChat()">✕</button>
+    </div>
+
+    <div id="chat-mensajes">
+        <div class="msg msg-ia">¡Hola! Soy tu asistente de análisis. Puedo responder preguntas sobre jugadores, estadísticas y predicciones de Czech Liga Pro. ¿En qué te ayudo?</div>
+    </div>
+
+    <div class="chat-sugerencias">
+        <button class="sug-btn" onclick="enviarSugerencia('¿Quién es el mejor jugador?')">🏆 Mejor jugador</button>
+        <button class="sug-btn" onclick="enviarSugerencia('¿Quién tiene mejor racha?')">🔥 Mejor racha</button>
+        <button class="sug-btn" onclick="enviarSugerencia('¿Cuántos partidos hay analizados?')">📊 Estadísticas</button>
+    </div>
+
+    <div class="chat-input-area">
+        <input type="text" id="chat-input" placeholder="Escribe tu pregunta..." onkeydown="if(event.key==='Enter') enviarMensaje()">
+        <button id="chat-send" onclick="enviarMensaje()">➤</button>
+    </div>
+</div>
+
 <script>
 // ── NAVEGACION ─────────────────────────────────────────────
 function mostrarSeccion(id) {
@@ -244,10 +393,7 @@ function predecir() {
     const visitante = document.getElementById('visitante').value.trim();
     const hora      = parseInt(document.getElementById('hora').value);
 
-    if (!local || !visitante) {
-        alert('Ingresa ambos jugadores');
-        return;
-    }
+    if (!local || !visitante) { alert('Ingresa ambos jugadores'); return; }
 
     fetch('/api/predecir', {
         method: 'POST',
@@ -257,7 +403,6 @@ function predecir() {
     .then(r => r.json())
     .then(d => {
         document.getElementById('resultado-predictor').style.display = 'block';
-
         document.getElementById('res-ganador').textContent       = d.ganador;
         document.getElementById('res-local-nombre').textContent  = d.local;
         document.getElementById('res-visit-nombre').textContent  = d.visitante;
@@ -296,10 +441,7 @@ function predecirLive() {
     const marc_local = parseInt(document.getElementById('live-marc-local').value);
     const marc_visit = parseInt(document.getElementById('live-marc-visit').value);
 
-    if (!local || !visitante) {
-        alert('Ingresa ambos jugadores');
-        return;
-    }
+    if (!local || !visitante) { alert('Ingresa ambos jugadores'); return; }
 
     fetch('/api/live', {
         method: 'POST',
@@ -314,10 +456,7 @@ function predecirLive() {
         const grid = document.getElementById('live-recomendaciones');
         grid.innerHTML = d.recomendaciones.map(r => {
             if (r.estado === 'SUPERADA') {
-                return `<div class="rec-card superada">
-                    <h4>Linea ${r.linea}</h4>
-                    <p>${r.mensaje}</p>
-                </div>`;
+                return `<div class="rec-card superada"><h4>Linea ${r.linea}</h4><p>${r.mensaje}</p></div>`;
             }
             return `<div class="rec-card ${r.color === 'green' ? 'recomendada' : 'no-recomendada'}">
                 <h4>Linea ${r.linea}</h4>
@@ -378,6 +517,52 @@ function cargarPredicciones() {
                 </div>`;
             }).join('');
         });
+}
+
+// ── CHAT IA ────────────────────────────────────────────────
+function toggleChat() {
+    const panel = document.getElementById('chat-panel');
+    panel.classList.toggle('abierto');
+}
+
+function agregarMensaje(texto, tipo) {
+    const div = document.createElement('div');
+    div.className = `msg msg-${tipo}`;
+    div.textContent = texto;
+    const contenedor = document.getElementById('chat-mensajes');
+    contenedor.appendChild(div);
+    contenedor.scrollTop = contenedor.scrollHeight;
+    return div;
+}
+
+function enviarSugerencia(texto) {
+    document.getElementById('chat-input').value = texto;
+    enviarMensaje();
+}
+
+async function enviarMensaje() {
+    const input = document.getElementById('chat-input');
+    const texto = input.value.trim();
+    if (!texto) return;
+
+    input.value = '';
+    agregarMensaje(texto, 'user');
+
+    const typing = agregarMensaje('Analizando datos...', 'typing');
+
+    try {
+        const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({mensaje: texto})
+        });
+        const data = await res.json();
+        typing.remove();
+        agregarMensaje(data.respuesta, 'ia');
+    } catch (e) {
+        typing.remove();
+        agregarMensaje('Error al conectar con el asistente. Intenta de nuevo.', 'ia');
+    }
 }
 </script>
 </body>
