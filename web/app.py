@@ -320,7 +320,7 @@ Si preguntan por un jugador especifico que no esta en el top 5, indica que puede
 
     client    = Groq(api_key=os.environ.get('GROQ_API_KEY'))
     respuesta = client.chat.completions.create(
-        model="llama3-8b-8192",
+        model="llama-3.3-70b-versatile",
         messages=[
             {"role": "system", "content": contexto},
             {"role": "user",   "content": mensaje}
