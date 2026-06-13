@@ -58,7 +58,8 @@ def get_h2h(jugador_a, jugador_b, h2h_df):
         return round(f['victorias_b'] / total, 3), total
 
 def get_wr_horario(jugador, hora, df):
-    df['hora'] = pd.to_datetime(df['fecha']).dt.hour
+    df = df.copy()
+    df['hora'] = pd.to_datetime(df['fecha'], errors='coerce').dt.hour
     if hora < 12:   mask_hora = df['hora'] < 12
     elif hora < 18: mask_hora = (df['hora'] >= 12) & (df['hora'] < 18)
     else:           mask_hora = df['hora'] >= 18
@@ -103,33 +104,34 @@ def construir_features(local, visitante, hora, features, h2h):
 # ── CONTEXTO COMPLETO PARA CHAT IA ────────────────────────
 def construir_contexto_ia():
     try:
-        conn     = get_conexion()
-        features = pd.read_sql(
+        conn      = get_conexion()
+        features  = pd.read_sql(
             "SELECT jugador, partidos, victorias, win_rate, sets_ratio, victorias_ultimos_5 "
             "FROM player_features ORDER BY win_rate DESC LIMIT 20", conn
         )
-        h2h      = pd.read_sql("SELECT * FROM head_to_head ORDER BY partidos DESC LIMIT 20", conn)
-        total    = pd.read_sql("SELECT COUNT(*) as n FROM matches_finalizados", conn)
+        h2h       = pd.read_sql("SELECT * FROM head_to_head ORDER BY partidos DESC LIMIT 20", conn)
+        total     = pd.read_sql("SELECT COUNT(*) as n FROM matches_finalizados", conn)
         recientes = pd.read_sql(
             "SELECT jugador_local, jugador_visitante, ganador, fecha "
-            "FROM matches_finalizados ORDER BY fecha DESC LIMIT 50", conn
+            "FROM matches_finalizados ORDER BY fecha DESC LIMIT 100", conn
         )
         conn.close()
 
         total_partidos = int(total.iloc[0]['n'])
-        top10 = features.head(10).to_dict(orient='records')
+        top10    = features.head(10).to_dict(orient='records')
         en_racha = features[features['victorias_ultimos_5'] >= 4].to_dict(orient='records')
         top_h2h  = h2h.head(5).to_dict(orient='records')
 
-        # Tendencia ultima semana
-        hace_7_dias = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-        recientes['fecha_str'] = recientes['fecha'].astype(str)
-        semana = recientes[recientes['fecha_str'] >= hace_7_dias]
-        goles_semana = {}
-        for _, row in semana.iterrows():
-            g = row['ganador']
-            goles_semana[g] = goles_semana.get(g, 0) + 1
-        top_semana = sorted(goles_semana.items(), key=lambda x: x[1], reverse=True)[:5]
+        # Fix formato de fechas
+        recientes['fecha_dt'] = pd.to_datetime(recientes['fecha'], errors='coerce')
+        hace_7  = datetime.now() - timedelta(days=7)
+        hace_30 = datetime.now() - timedelta(days=30)
+
+        semana = recientes[recientes['fecha_dt'] >= hace_7]
+        mes    = recientes[recientes['fecha_dt'] >= hace_30]
+
+        top_semana = semana['ganador'].value_counts().head(5).to_dict()
+        top_mes    = mes['ganador'].value_counts().head(5).to_dict()
 
         contexto = f"""Eres un asistente experto en análisis de Czech Liga Pro de tenis de mesa.
 Tienes acceso completo a los datos reales de la liga. Responde en español de forma concisa y profesional.
@@ -137,6 +139,8 @@ Tienes acceso completo a los datos reales de la liga. Responde en español de fo
 === DATOS GENERALES ===
 - Total partidos analizados: {total_partidos}
 - Total jugadores activos: {len(features)}
+- Partidos última semana: {len(semana)}
+- Partidos último mes: {len(mes)}
 
 === TOP 10 JUGADORES POR WIN RATE ===
 {chr(10).join([f"  {i+1}. {j['jugador']} — WR: {round(j['win_rate']*100,1)}%, Partidos: {j['partidos']}, Sets ratio: {round(j['sets_ratio']*100,1)}%, Racha últimos 5: {j['victorias_ultimos_5']}/5" for i, j in enumerate(top10)])}
@@ -148,14 +152,16 @@ Tienes acceso completo a los datos reales de la liga. Responde en español de fo
 {chr(10).join([f"  - {h['jugador_a']} vs {h['jugador_b']}: {h['partidos']} partidos, {h['victorias_a']} victorias para {h['jugador_a']}" for h in top_h2h])}
 
 === TENDENCIA ÚLTIMA SEMANA ===
-{chr(10).join([f"  - {j}: {v} victorias" for j, v in top_semana]) if top_semana else '  Sin datos recientes'}
+{chr(10).join([f"  - {j}: {v} victorias" for j, v in top_semana.items()]) if top_semana else '  Sin datos recientes de esta semana'}
+
+=== TENDENCIA ÚLTIMO MES ===
+{chr(10).join([f"  - {j}: {v} victorias" for j, v in top_mes.items()]) if top_mes else '  Sin datos del último mes'}
 
 === INSTRUCCIONES ===
 - Máximo 4 oraciones por respuesta
-- Si preguntan por un jugador específico, usa los datos disponibles
-- Si no tienes datos de un jugador, indícalo claramente
-- Para predicciones específicas, sugiere usar el Predictor de la página
-- Sé directo y usa los números reales de los datos
+- Usa siempre los números reales de los datos
+- Para predicciones específicas de partido, sugiere usar el Predictor
+- Si no hay datos de algo, indícalo claramente con los datos que sí tienes
 """
         return contexto
     except Exception as e:
@@ -168,10 +174,8 @@ def index():
     features = pd.read_sql("SELECT * FROM player_features", conn)
     conn.close()
 
-    stats = {
-        'total_jugadores' : len(features),
-        'fecha'           : datetime.now().strftime('%d/%m/%Y %H:%M'),
-    }
+    stats = {'total_jugadores': len(features),
+             'fecha': datetime.now().strftime('%d/%m/%Y %H:%M')}
 
     try:
         conn  = get_conexion()
@@ -195,8 +199,8 @@ def index():
 def api_jugadores():
     conn     = get_conexion()
     features = pd.read_sql(
-        "SELECT jugador, partidos, victorias, win_rate, sets_ratio, victorias_ultimos_5 FROM player_features ORDER BY win_rate DESC",
-        conn
+        "SELECT jugador, partidos, victorias, win_rate, sets_ratio, victorias_ultimos_5 "
+        "FROM player_features ORDER BY win_rate DESC", conn
     )
     conn.close()
     return jsonify(features.to_dict(orient='records'))
@@ -301,38 +305,25 @@ def api_live():
     for linea in [17.5, 18.5, 19.5]:
         restantes = linea - puntos_actuales
         if restantes <= 0:
-            recomendaciones.append({
-                'linea'  : linea,
-                'estado' : 'SUPERADA',
-                'mensaje': f'Linea ya superada (van {puntos_actuales} puntos)'
-            })
+            recomendaciones.append({'linea': linea, 'estado': 'SUPERADA',
+                                    'mensaje': f'Linea ya superada (van {puntos_actuales} puntos)'})
             continue
 
         datos  = df_h2h_set if len(df_h2h_set) >= 3 else df_general
         fuente = 'H2H' if len(df_h2h_set) >= 3 else 'General'
-
-        over  = round((datos > linea).sum() / len(datos) * 100, 1) if len(datos) > 0 else 50
-        under = round((datos <= linea).sum() / len(datos) * 100, 1) if len(datos) > 0 else 50
+        over   = round((datos > linea).sum() / len(datos) * 100, 1) if len(datos) > 0 else 50
+        under  = round((datos <= linea).sum() / len(datos) * 100, 1) if len(datos) > 0 else 50
 
         if over >= 65:
-            accion = f'APOSTAR MAS DE {linea}'
-            color  = 'green'
+            accion, color = f'APOSTAR MAS DE {linea}', 'green'
         elif under >= 65:
-            accion = f'APOSTAR MENOS DE {linea}'
-            color  = 'green'
+            accion, color = f'APOSTAR MENOS DE {linea}', 'green'
         else:
-            accion = 'NO APOSTAR'
-            color  = 'red'
+            accion, color = 'NO APOSTAR', 'red'
 
-        recomendaciones.append({
-            'linea'    : linea,
-            'over'     : over,
-            'under'    : under,
-            'accion'   : accion,
-            'color'    : color,
-            'fuente'   : fuente,
-            'restantes': restantes,
-        })
+        recomendaciones.append({'linea': linea, 'over': over, 'under': under,
+                                'accion': accion, 'color': color,
+                                'fuente': fuente, 'restantes': restantes})
 
     diferencia = abs(marc_local - marc_visit)
     if diferencia <= 2 and puntos_actuales >= 18:
@@ -342,41 +333,33 @@ def api_live():
     else:
         alerta = 'Partido equilibrado - Seguir historico'
 
-    return jsonify({
-        'recomendaciones' : recomendaciones,
-        'alerta'          : alerta,
-        'puntos_actuales' : puntos_actuales,
-        'sets_anteriores' : sets_ant,
-    })
+    return jsonify({'recomendaciones': recomendaciones, 'alerta': alerta,
+                    'puntos_actuales': puntos_actuales, 'sets_anteriores': sets_ant})
 
 @app.route('/api/stats_dashboard')
 def api_stats_dashboard():
     try:
-        conn     = get_conexion()
-        features = pd.read_sql(
+        conn      = get_conexion()
+        features  = pd.read_sql(
             "SELECT jugador, partidos, victorias, win_rate, victorias_ultimos_5 "
             "FROM player_features ORDER BY win_rate DESC LIMIT 10", conn
         )
         recientes = pd.read_sql(
-            "SELECT ganador, fecha FROM matches_finalizados "
-            "ORDER BY fecha DESC LIMIT 200", conn
+            "SELECT ganador, fecha FROM matches_finalizados ORDER BY fecha DESC LIMIT 200", conn
         )
         conn.close()
 
-        hace_7  = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-        hace_30 = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        recientes['fecha_dt'] = pd.to_datetime(recientes['fecha'], errors='coerce')
+        hace_7  = datetime.now() - timedelta(days=7)
+        hace_30 = datetime.now() - timedelta(days=30)
 
-        recientes['fecha_str'] = recientes['fecha'].astype(str)
-        semana = recientes[recientes['fecha_str'] >= hace_7]
-        mes    = recientes[recientes['fecha_str'] >= hace_30]
-
-        top_semana = semana['ganador'].value_counts().head(5).to_dict()
-        top_mes    = mes['ganador'].value_counts().head(5).to_dict()
+        semana = recientes[recientes['fecha_dt'] >= hace_7]
+        mes    = recientes[recientes['fecha_dt'] >= hace_30]
 
         return jsonify({
             'top10'      : features.to_dict(orient='records'),
-            'top_semana' : top_semana,
-            'top_mes'    : top_mes,
+            'top_semana' : semana['ganador'].value_counts().head(5).to_dict(),
+            'top_mes'    : mes['ganador'].value_counts().head(5).to_dict(),
             'en_racha'   : features[features['victorias_ultimos_5'] >= 4]['jugador'].tolist(),
         })
     except Exception as e:
@@ -384,9 +367,8 @@ def api_stats_dashboard():
 
 @app.route('/api/chat', methods=['POST'])
 def api_chat():
-    data    = request.json
-    mensaje = data.get('mensaje', '')
-
+    data      = request.json
+    mensaje   = data.get('mensaje', '')
     contexto  = construir_contexto_ia()
     client    = Groq(api_key=os.environ.get('GROQ_API_KEY'))
     respuesta = client.chat.completions.create(
@@ -397,7 +379,6 @@ def api_chat():
         ],
         max_tokens=400
     )
-
     return jsonify({'respuesta': respuesta.choices[0].message.content})
 
 if __name__ == '__main__':
