@@ -5,7 +5,7 @@ import sqlite3
 import pandas as pd
 import pickle
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 from groq import Groq
 
@@ -99,6 +99,67 @@ def construir_features(local, visitante, hora, features, h2h):
         'wr_visit_hora'    : wr_v,
         'diff_wr_hora'     : wr_l - wr_v,
     }])
+
+# ── CONTEXTO COMPLETO PARA CHAT IA ────────────────────────
+def construir_contexto_ia():
+    try:
+        conn     = get_conexion()
+        features = pd.read_sql(
+            "SELECT jugador, partidos, victorias, win_rate, sets_ratio, victorias_ultimos_5 "
+            "FROM player_features ORDER BY win_rate DESC LIMIT 20", conn
+        )
+        h2h      = pd.read_sql("SELECT * FROM head_to_head ORDER BY partidos DESC LIMIT 20", conn)
+        total    = pd.read_sql("SELECT COUNT(*) as n FROM matches_finalizados", conn)
+        recientes = pd.read_sql(
+            "SELECT jugador_local, jugador_visitante, ganador, fecha "
+            "FROM matches_finalizados ORDER BY fecha DESC LIMIT 50", conn
+        )
+        conn.close()
+
+        total_partidos = int(total.iloc[0]['n'])
+        top10 = features.head(10).to_dict(orient='records')
+        en_racha = features[features['victorias_ultimos_5'] >= 4].to_dict(orient='records')
+        top_h2h  = h2h.head(5).to_dict(orient='records')
+
+        # Tendencia ultima semana
+        hace_7_dias = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+        recientes['fecha_str'] = recientes['fecha'].astype(str)
+        semana = recientes[recientes['fecha_str'] >= hace_7_dias]
+        goles_semana = {}
+        for _, row in semana.iterrows():
+            g = row['ganador']
+            goles_semana[g] = goles_semana.get(g, 0) + 1
+        top_semana = sorted(goles_semana.items(), key=lambda x: x[1], reverse=True)[:5]
+
+        contexto = f"""Eres un asistente experto en análisis de Czech Liga Pro de tenis de mesa.
+Tienes acceso completo a los datos reales de la liga. Responde en español de forma concisa y profesional.
+
+=== DATOS GENERALES ===
+- Total partidos analizados: {total_partidos}
+- Total jugadores activos: {len(features)}
+
+=== TOP 10 JUGADORES POR WIN RATE ===
+{chr(10).join([f"  {i+1}. {j['jugador']} — WR: {round(j['win_rate']*100,1)}%, Partidos: {j['partidos']}, Sets ratio: {round(j['sets_ratio']*100,1)}%, Racha últimos 5: {j['victorias_ultimos_5']}/5" for i, j in enumerate(top10)])}
+
+=== JUGADORES EN RACHA (4+ victorias en últimos 5) ===
+{chr(10).join([f"  - {j['jugador']}: {j['victorias_ultimos_5']}/5 victorias recientes, WR global: {round(j['win_rate']*100,1)}%" for j in en_racha]) if en_racha else '  Ninguno con racha destacada actualmente'}
+
+=== TOP H2H (enfrentamientos directos) ===
+{chr(10).join([f"  - {h['jugador_a']} vs {h['jugador_b']}: {h['partidos']} partidos, {h['victorias_a']} victorias para {h['jugador_a']}" for h in top_h2h])}
+
+=== TENDENCIA ÚLTIMA SEMANA ===
+{chr(10).join([f"  - {j}: {v} victorias" for j, v in top_semana]) if top_semana else '  Sin datos recientes'}
+
+=== INSTRUCCIONES ===
+- Máximo 4 oraciones por respuesta
+- Si preguntan por un jugador específico, usa los datos disponibles
+- Si no tienes datos de un jugador, indícalo claramente
+- Para predicciones específicas, sugiere usar el Predictor de la página
+- Sé directo y usa los números reales de los datos
+"""
+        return contexto
+    except Exception as e:
+        return "Eres un asistente experto en Czech Liga Pro de tenis de mesa. Responde en español de forma concisa."
 
 # ── RUTAS ─────────────────────────────────────────────────
 @app.route('/')
@@ -288,36 +349,45 @@ def api_live():
         'sets_anteriores' : sets_ant,
     })
 
+@app.route('/api/stats_dashboard')
+def api_stats_dashboard():
+    try:
+        conn     = get_conexion()
+        features = pd.read_sql(
+            "SELECT jugador, partidos, victorias, win_rate, victorias_ultimos_5 "
+            "FROM player_features ORDER BY win_rate DESC LIMIT 10", conn
+        )
+        recientes = pd.read_sql(
+            "SELECT ganador, fecha FROM matches_finalizados "
+            "ORDER BY fecha DESC LIMIT 200", conn
+        )
+        conn.close()
+
+        hace_7  = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+        hace_30 = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+
+        recientes['fecha_str'] = recientes['fecha'].astype(str)
+        semana = recientes[recientes['fecha_str'] >= hace_7]
+        mes    = recientes[recientes['fecha_str'] >= hace_30]
+
+        top_semana = semana['ganador'].value_counts().head(5).to_dict()
+        top_mes    = mes['ganador'].value_counts().head(5).to_dict()
+
+        return jsonify({
+            'top10'      : features.to_dict(orient='records'),
+            'top_semana' : top_semana,
+            'top_mes'    : top_mes,
+            'en_racha'   : features[features['victorias_ultimos_5'] >= 4]['jugador'].tolist(),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
 @app.route('/api/chat', methods=['POST'])
 def api_chat():
     data    = request.json
     mensaje = data.get('mensaje', '')
 
-    try:
-        conn     = get_conexion()
-        features = pd.read_sql(
-            "SELECT jugador, partidos, victorias, win_rate, sets_ratio, victorias_ultimos_5 "
-            "FROM player_features ORDER BY win_rate DESC LIMIT 10",
-            conn
-        )
-        total = pd.read_sql("SELECT COUNT(*) as n FROM matches_finalizados", conn)
-        conn.close()
-
-        top_jugadores  = features.head(5).to_dict(orient='records')
-        total_partidos = int(total.iloc[0]['n'])
-
-        contexto = f"""Eres un asistente experto en Czech Liga Pro de tenis de mesa.
-Tienes acceso a datos reales de la liga:
-
-- Total de partidos analizados: {total_partidos}
-- Top 5 jugadores por win rate:
-{chr(10).join([f"  {i+1}. {j['jugador']} — Win Rate: {round(j['win_rate']*100,1)}%, Partidos: {j['partidos']}, Racha ultimos 5: {j['victorias_ultimos_5']}/5" for i, j in enumerate(top_jugadores)])}
-
-Responde en español de forma concisa y profesional. Maximo 3 oraciones.
-Si preguntan por un jugador especifico que no esta en el top 5, indica que pueden ver mas datos usando el Predictor."""
-    except Exception:
-        contexto = "Eres un asistente experto en Czech Liga Pro de tenis de mesa. Responde en español de forma concisa."
-
+    contexto  = construir_contexto_ia()
     client    = Groq(api_key=os.environ.get('GROQ_API_KEY'))
     respuesta = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
@@ -325,7 +395,7 @@ Si preguntan por un jugador especifico que no esta en el top 5, indica que puede
             {"role": "system", "content": contexto},
             {"role": "user",   "content": mensaje}
         ],
-        max_tokens=300
+        max_tokens=400
     )
 
     return jsonify({'respuesta': respuesta.choices[0].message.content})
