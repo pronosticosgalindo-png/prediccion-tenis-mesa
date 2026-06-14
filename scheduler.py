@@ -6,89 +6,67 @@ import pickle
 import json
 import os
 from datetime import datetime
-from curl_cffi import requests
+from playwright.sync_api import sync_playwright
 
 # ── CONFIGURACION ─────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH  = os.path.join(BASE_DIR, 'base_ping_pong.sqlite')
-MOD_PATH = os.path.join(BASE_DIR, 'analysis', 'modelo_avanzado.pkl')
-
+BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
+DB_PATH   = os.path.join(BASE_DIR, 'base_ping_pong.sqlite')
+MOD_PATH  = os.path.join(BASE_DIR, 'analysis', 'modelo_avanzado.pkl')
 TORNEO_ID = '19039'
 
-cookies = {
-    '_cc_id': '665c530e0f6aa71a8a4cb0637145eaa7',
-    '_ga': 'GA1.1.1956304625.1762201631',
-    'AD_VERGE_SESSION_COOKIE_V1': '8f5072f4-2b49-4f5c-a190-6e99e705eb06',
-    '_adv_uid': 'c97e1656-b739-4520-ad16-137ebb86720a',
-    'hb_insticator_uid': '847eaa92-6071-4fbc-bd86-227c62f6fd6d',
-    '_gcl_au': '1.1.835639633.1780018185',
-    '_adv_sid': '7799cd2d-4229-48c2-8496-4616a6a962cd',
-    'ssp_test': 'control',
-    '__gads': 'ID=86ba3bf017fab095:T=1762201627:RT=1781314847:S=ALNI_MYXKVhFZ-tm3js_y8AGbLqMYgLU_A',
-    '__gpi': 'UID=000012a59574e3c7:T=1762201627:RT=1781314847:S=ALNI_MYIUpKlhX_9Lvn6I8c9rYA1mKByZQ',
-    '__eoi': 'ID=9f47ba8481905a21:T=1780018205:RT=1781314847:S=AA-AfjZK16GEX47BwSM7nZyc3Mj9',
-    'cto_bundle': '_-c0x19YUmFhbXozMUdhcE01QUt3Q3FCbU8lMkIyWXNnSDlFbFRjbXREOUVwa25lVjNyQmlqM1FyVVdEcDJ1YjdnZkc2MUdZRnZMR3BGbEhGYmFzbWxvWVZoMVFiM2ZIT255MFhSJTJGeXVVMjRaV1JwQ1lrblRvNnJZV0JPb3U5TTRsWHFhd0xLbFclMkZKbmJXMGsyTWQ0VUlqbFROU2clM0QlM0Q',
-    'cto_bidid': '3LAkXV9pVWljNUhzZEZRQkdiclVtTUQ2bSUyQlBYZnlTb2p5WW8lMkJ5YlglMkZEbDdDbWpNNCUyRlRXcCUyRnJUVHB6c0ZSc0NJeE1uNzFkNkd5JTJGOEFsdzE3Y2E5amt4YzdhdlBrV09YSDFqSGYlMkY1UnJVVEMzV1VZJTNE',
-    'FCCDCF': '%5Bnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C%5B%5B32%2C%22%5B%5C%22398b09f5-8b5b-4d0d-8a97-49e5c52d93ce%5C%22%2C%5B1762201626%2C136000000%5D%5D%22%5D%5D%5D',
-    'FCNEC': '%5B%5B%22AKsRol9BpLUSC47Z1hzd4T3DKtzbfCXIt78Ovnh3X6XVhfT0hLmBiX7zrYSp4daOfAh0f0Os3uUbJSrcwxbSCyAzvH2kZ5V1iVJ7syiAKAzJONqJa7DH8qwDKffLGnxX7W0CZV66mSVP6sq_aC0giVMvOEr97E3VKA%3D%3D%22%5D%5D',
-    '_ga_HNQ9P9MGZR': 'GS2.1.s1781314860$o26$g1$t1781315052$j60$l0$h0',
-}
-
-headers = {
-    'accept': '*/*',
-    'accept-language': 'es-ES,es;q=0.9',
-    'cache-control': 'max-age=0',
-    'referer': 'https://www.sofascore.com/es/table-tennis',
-    'sec-ch-ua': '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'sec-fetch-dest': 'empty',
-    'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'same-origin',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
-    'x-requested-with': 'd79e08',
-}
-
-# ── EXTRACTOR ─────────────────────────────────────────────
+# ── EXTRACTOR CON PLAYWRIGHT ──────────────────────────────
 def extraer_partidos():
     FECHA_HOY = datetime.now().strftime('%Y-%m-%d')
+    URL = f'https://www.sofascore.com/api/v1/unique-tournament/{TORNEO_ID}/scheduled-events/{FECHA_HOY}'
     print(f"Extrayendo partidos: {FECHA_HOY}")
+
     try:
-        response = requests.get(
-            f'https://www.sofascore.com/api/v1/unique-tournament/{TORNEO_ID}/scheduled-events/{FECHA_HOY}',
-            cookies=cookies, headers=headers, impersonate="chrome120"
-        )
-        if response.status_code != 200:
-            print(f"Error HTTP: {response.status_code}")
-            return 0
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
+                locale='es-ES',
+            )
+            page = context.new_page()
+            page.goto('https://www.sofascore.com/es/table-tennis', wait_until='networkidle', timeout=30000)
+            page.wait_for_timeout(2000)
 
-        lista = response.json().get('events', [])
-        if not lista:
-            print("Sin partidos hoy")
-            return 0
+            response = page.request.get(URL)
+            browser.close()
 
-        df_nuevos = pd.json_normalize(lista)
-        for col in df_nuevos.columns:
-            if df_nuevos[col].apply(lambda x: isinstance(x, (list, dict))).any():
-                df_nuevos[col] = df_nuevos[col].apply(
-                    lambda x: json.dumps(x) if isinstance(x, (list, dict)) else x
-                )
+            if response.status != 200:
+                print(f"Error HTTP: {response.status}")
+                return 0
 
-        conn = sqlite3.connect(DB_PATH)
-        try:
-            df_exist    = pd.read_sql("SELECT id FROM matches", conn)
-            ids_exist   = set(df_exist['id'].astype(str).tolist())
-            df_filtrado = df_nuevos[~df_nuevos['id'].astype(str).isin(ids_exist)]
-        except:
-            df_filtrado = df_nuevos
+            lista = response.json().get('events', [])
+            if not lista:
+                print("Sin partidos hoy")
+                return 0
 
-        guardados = 0
-        if len(df_filtrado) > 0:
-            df_filtrado.to_sql("matches", conn, if_exists="append", index=False)
-            guardados = len(df_filtrado)
-        conn.close()
-        print(f"Partidos nuevos: {guardados} / Total: {len(lista)}")
-        return guardados
+            df_nuevos = pd.json_normalize(lista)
+            for col in df_nuevos.columns:
+                if df_nuevos[col].apply(lambda x: isinstance(x, (list, dict))).any():
+                    df_nuevos[col] = df_nuevos[col].apply(
+                        lambda x: json.dumps(x) if isinstance(x, (list, dict)) else x
+                    )
+
+            conn = sqlite3.connect(DB_PATH)
+            try:
+                df_exist    = pd.read_sql("SELECT id FROM matches", conn)
+                ids_exist   = set(df_exist['id'].astype(str).tolist())
+                df_filtrado = df_nuevos[~df_nuevos['id'].astype(str).isin(ids_exist)]
+            except:
+                df_filtrado = df_nuevos
+
+            guardados = 0
+            if len(df_filtrado) > 0:
+                df_filtrado.to_sql("matches", conn, if_exists="append", index=False)
+                guardados = len(df_filtrado)
+            conn.close()
+
+            print(f"Partidos nuevos: {guardados} / Total: {len(lista)}")
+            return guardados
+
     except Exception as e:
         print(f"Error extraccion: {e}")
         return 0
@@ -100,9 +78,9 @@ def generar_predicciones_destacadas():
             paquete = pickle.load(f)
         modelos = paquete['modelos']
 
-        conn     = sqlite3.connect(DB_PATH)
-        features = pd.read_sql("SELECT * FROM player_features", conn)
-        h2h_df   = pd.read_sql("SELECT * FROM head_to_head", conn)
+        conn      = sqlite3.connect(DB_PATH)
+        features  = pd.read_sql("SELECT * FROM player_features", conn)
+        h2h_df    = pd.read_sql("SELECT * FROM head_to_head", conn)
         FECHA_HOY = datetime.now().strftime('%Y-%m-%d')
 
         try:
@@ -178,6 +156,7 @@ def generar_predicciones_destacadas():
                 continue
 
         return predicciones_altas
+
     except Exception as e:
         print(f"Error predicciones: {e}")
         return []
@@ -214,7 +193,7 @@ def guardar_alertas(nuevos, predicciones):
 
         conn.commit()
         conn.close()
-        print(f"Alertas guardadas en base de datos")
+        print(f"Alertas guardadas correctamente")
     except Exception as e:
         print(f"Error guardando alertas: {e}")
 
