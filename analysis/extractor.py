@@ -19,9 +19,6 @@ cookies = {
     '_adv_uid': 'c97e1656-b739-4520-ad16-137ebb86720a',
     'hb_insticator_uid': '847eaa92-6071-4fbc-bd86-227c62f6fd6d',
     '_gcl_au': '1.1.835639633.1780018185',
-    '_ga_HNQ9P9MGZR': 'deleted',
-    '_lc2_fpi': 'a78faec1e09d--01kstzmsyb4d7w7byfqm46gx1b',
-    '_lc2_fpi_meta': '%7B%22w%22%3A1780095805393%7D',
     '_adv_sid': '7799cd2d-4229-48c2-8496-4616a6a962cd',
     'ssp_test': 'control',
     '__gads': 'ID=86ba3bf017fab095:T=1762201627:RT=1781314847:S=ALNI_MYXKVhFZ-tm3js_y8AGbLqMYgLU_A',
@@ -37,9 +34,7 @@ cookies = {
 headers = {
     'accept': '*/*',
     'accept-language': 'es-ES,es;q=0.9',
-    'baggage': 'sentry-environment=production,sentry-public_key=d693747a6bb242d9bb9cf7069fb57988,sentry-trace_id=76d5559cc9daa2c9000af57eb70eccfd,sentry-org_id=18522,sentry-sample_rand=0.4194900655728808',
     'cache-control': 'max-age=0',
-    'if-none-match': 'W/"4738ecccc9"',
     'priority': 'u=1, i',
     'referer': 'https://www.sofascore.com/es/table-tennis',
     'sec-ch-ua': '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
@@ -48,7 +43,6 @@ headers = {
     'sec-fetch-dest': 'empty',
     'sec-fetch-mode': 'cors',
     'sec-fetch-site': 'same-origin',
-    'sentry-trace': '76d5559cc9daa2c9000af57eb70eccfd-b1d15ee05830f521',
     'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
     'x-requested-with': 'd79e08',
 }
@@ -66,11 +60,9 @@ def limpiar_dataframe_para_sql(df):
 # ── ELIMINAR DUPLICADOS ANTES DE GUARDAR ───────────────────
 def guardar_sin_duplicados(df_nuevos, conexion):
     try:
-        df_existentes = pd.read_sql("SELECT id FROM matches", conexion)
+        df_existentes  = pd.read_sql("SELECT id FROM matches", conexion)
         ids_existentes = set(df_existentes['id'].astype(str).tolist())
-        df_filtrado = df_nuevos[
-            ~df_nuevos['id'].astype(str).isin(ids_existentes)
-        ]
+        df_filtrado    = df_nuevos[~df_nuevos['id'].astype(str).isin(ids_existentes)]
     except Exception:
         df_filtrado = df_nuevos
 
@@ -81,9 +73,9 @@ def guardar_sin_duplicados(df_nuevos, conexion):
     df_filtrado.to_sql("matches", conexion, if_exists="append", index=False)
     return len(df_filtrado)
 
-# ── EXTRACCION ─────────────────────────────────────────────
+# ── EXTRACCION — TORNEO ID 19039 (Czech Liga Pro) ──────────
 response = requests.get(
-    f'https://www.sofascore.com/api/v1/unique-tournament/24047/scheduled-events/{FECHA_HOY}',
+    f'https://www.sofascore.com/api/v1/unique-tournament/19039/scheduled-events/{FECHA_HOY}',
     cookies=cookies,
     headers=headers,
     impersonate="chrome120"
@@ -98,7 +90,7 @@ if response.status_code == 200:
 
         df_nuevos = limpiar_dataframe_para_sql(df_nuevos)
 
-        conexion = sqlite3.connect("base_ping_pong.sqlite")
+        conexion  = sqlite3.connect("base_ping_pong.sqlite")
         guardados = guardar_sin_duplicados(df_nuevos, conexion)
         conexion.close()
 
@@ -107,6 +99,5 @@ if response.status_code == 200:
         print("extractor.py ejecutado correctamente")
     else:
         print("Conexion exitosa, pero no hay partidos para esta fecha.")
-
 else:
     print(f"Error al conectar. Codigo: {response.status_code}")

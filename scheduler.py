@@ -3,20 +3,17 @@ sys.stdout.reconfigure(encoding='utf-8')
 import sqlite3
 import pandas as pd
 import pickle
-import numpy as np
-import requests as req_lib
 import json
 import os
 from datetime import datetime
 from curl_cffi import requests
 
 # ── CONFIGURACION ─────────────────────────────────────────
-BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
-DB_PATH   = os.path.join(BASE_DIR, 'base_ping_pong.sqlite')
-MOD_PATH  = os.path.join(BASE_DIR, 'analysis', 'modelo_avanzado.pkl')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH  = os.path.join(BASE_DIR, 'base_ping_pong.sqlite')
+MOD_PATH = os.path.join(BASE_DIR, 'analysis', 'modelo_avanzado.pkl')
 
-TELEGRAM_TOKEN   = os.environ.get('TELEGRAM_TOKEN', '8971209009:AAEG4VnJJnP4qwD3lUIQx_mLk2E6mOQkrOs')
-TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '1546171444')
+TORNEO_ID = '19039'
 
 cookies = {
     '_cc_id': '665c530e0f6aa71a8a4cb0637145eaa7',
@@ -40,10 +37,7 @@ cookies = {
 headers = {
     'accept': '*/*',
     'accept-language': 'es-ES,es;q=0.9',
-    'baggage': 'sentry-environment=production,sentry-public_key=d693747a6bb242d9bb9cf7069fb57988,sentry-trace_id=76d5559cc9daa2c9000af57eb70eccfd,sentry-org_id=18522,sentry-sample_rand=0.4194900655728808',
     'cache-control': 'max-age=0',
-    'if-none-match': 'W/"4738ecccc9"',
-    'priority': 'u=1, i',
     'referer': 'https://www.sofascore.com/es/table-tennis',
     'sec-ch-ua': '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
     'sec-ch-ua-mobile': '?0',
@@ -51,43 +45,26 @@ headers = {
     'sec-fetch-dest': 'empty',
     'sec-fetch-mode': 'cors',
     'sec-fetch-site': 'same-origin',
-    'sentry-trace': '76d5559cc9daa2c9000af57eb70eccfd-b1d15ee05830f521',
     'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
     'x-requested-with': 'd79e08',
 }
 
-# ── TELEGRAM ──────────────────────────────────────────────
-def enviar_telegram(mensaje):
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        req_lib.post(url, json={
-            'chat_id': TELEGRAM_CHAT_ID,
-            'text': mensaje,
-            'parse_mode': 'HTML'
-        }, timeout=10)
-        print(f"✅ Telegram enviado: {mensaje[:60]}...")
-    except Exception as e:
-        print(f"❌ Error Telegram: {e}")
-
 # ── EXTRACTOR ─────────────────────────────────────────────
 def extraer_partidos():
     FECHA_HOY = datetime.now().strftime('%Y-%m-%d')
-    print(f"\n{'='*50}")
     print(f"Extrayendo partidos: {FECHA_HOY}")
-
     try:
         response = requests.get(
-            f'https://www.sofascore.com/api/v1/unique-tournament/24047/scheduled-events/{FECHA_HOY}',
+            f'https://www.sofascore.com/api/v1/unique-tournament/{TORNEO_ID}/scheduled-events/{FECHA_HOY}',
             cookies=cookies, headers=headers, impersonate="chrome120"
         )
-
         if response.status_code != 200:
-            print(f"❌ Error HTTP: {response.status_code}")
+            print(f"Error HTTP: {response.status_code}")
             return 0
 
         lista = response.json().get('events', [])
         if not lista:
-            print("Sin partidos hoy en Sofascore")
+            print("Sin partidos hoy")
             return 0
 
         df_nuevos = pd.json_normalize(lista)
@@ -99,8 +76,8 @@ def extraer_partidos():
 
         conn = sqlite3.connect(DB_PATH)
         try:
-            df_exist   = pd.read_sql("SELECT id FROM matches", conn)
-            ids_exist  = set(df_exist['id'].astype(str).tolist())
+            df_exist    = pd.read_sql("SELECT id FROM matches", conn)
+            ids_exist   = set(df_exist['id'].astype(str).tolist())
             df_filtrado = df_nuevos[~df_nuevos['id'].astype(str).isin(ids_exist)]
         except:
             df_filtrado = df_nuevos
@@ -110,43 +87,37 @@ def extraer_partidos():
             df_filtrado.to_sql("matches", conn, if_exists="append", index=False)
             guardados = len(df_filtrado)
         conn.close()
-
-        print(f"✅ Partidos nuevos: {guardados} / Total: {len(lista)}")
+        print(f"Partidos nuevos: {guardados} / Total: {len(lista)}")
         return guardados
-
     except Exception as e:
-        print(f"❌ Error extraccion: {e}")
+        print(f"Error extraccion: {e}")
         return 0
 
-# ── PREDICCIONES DE ALTA CONFIANZA ────────────────────────
+# ── PREDICCIONES DESTACADAS ───────────────────────────────
 def generar_predicciones_destacadas():
     try:
         with open(MOD_PATH, 'rb') as f:
             paquete = pickle.load(f)
-
-        modelos      = paquete['modelos']
-        feature_cols = paquete['feature_cols']
+        modelos = paquete['modelos']
 
         conn     = sqlite3.connect(DB_PATH)
         features = pd.read_sql("SELECT * FROM player_features", conn)
         h2h_df   = pd.read_sql("SELECT * FROM head_to_head", conn)
-
         FECHA_HOY = datetime.now().strftime('%Y-%m-%d')
+
         try:
             pendientes = pd.read_sql(
-                "SELECT * FROM matches WHERE DATE(startTimestamp, 'unixepoch') = ? "
-                "LIMIT 20", conn, params=(FECHA_HOY,)
+                "SELECT * FROM matches WHERE DATE(startTimestamp, 'unixepoch') = ? LIMIT 20",
+                conn, params=(FECHA_HOY,)
             )
         except:
             pendientes = pd.DataFrame()
         conn.close()
 
         if pendientes.empty:
-            print("Sin partidos pendientes para predecir")
             return []
 
         predicciones_altas = []
-
         for _, partido in pendientes.iterrows():
             try:
                 local     = str(partido.get('homeTeam_name', ''))
@@ -170,10 +141,9 @@ def generar_predicciones_destacadas():
                 h2h_score = 0.5
                 h2h_n     = 0
                 if not h2h_row.empty:
-                    f     = h2h_row.iloc[0]
-                    total = f['partidos']
-                    h2h_score = round(f['victorias_a'] / total, 3) if f['jugador_a'] == local else round(f['victorias_b'] / total, 3)
-                    h2h_n     = total
+                    f = h2h_row.iloc[0]
+                    h2h_score = round(f['victorias_a'] / f['partidos'], 3) if f['jugador_a'] == local else round(f['victorias_b'] / f['partidos'], 3)
+                    h2h_n = f['partidos']
 
                 X = pd.DataFrame([{
                     'local_win_rate'   : fl['win_rate'],
@@ -201,19 +171,52 @@ def generar_predicciones_destacadas():
 
                 if confianza >= 75:
                     predicciones_altas.append({
-                        'local'     : local,
-                        'visitante' : visitante,
-                        'ganador'   : ganador,
-                        'confianza' : confianza,
+                        'local': local, 'visitante': visitante,
+                        'ganador': ganador, 'confianza': confianza,
                     })
             except:
                 continue
 
         return predicciones_altas
-
     except Exception as e:
-        print(f"❌ Error predicciones: {e}")
+        print(f"Error predicciones: {e}")
         return []
+
+# ── GUARDAR ALERTAS EN BASE DE DATOS ──────────────────────
+def guardar_alertas(nuevos, predicciones):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS alertas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tipo TEXT,
+                mensaje TEXT,
+                fecha TEXT,
+                leida INTEGER DEFAULT 0
+            )
+        ''')
+
+        if nuevos > 0:
+            conn.execute(
+                "INSERT INTO alertas (tipo, mensaje, fecha) VALUES (?, ?, ?)",
+                ('nuevos_partidos',
+                 f'{nuevos} partidos nuevos guardados hoy',
+                 datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            )
+
+        for p in predicciones:
+            conn.execute(
+                "INSERT INTO alertas (tipo, mensaje, fecha) VALUES (?, ?, ?)",
+                ('prediccion_alta',
+                 f"{p['local']} vs {p['visitante']} — Ganador: {p['ganador']} ({p['confianza']}%)",
+                 datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            )
+
+        conn.commit()
+        conn.close()
+        print(f"Alertas guardadas en base de datos")
+    except Exception as e:
+        print(f"Error guardando alertas: {e}")
 
 # ── EJECUCION PRINCIPAL ───────────────────────────────────
 def ejecutar():
@@ -221,27 +224,13 @@ def ejecutar():
     print(f"SCHEDULER — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*50}")
 
-    nuevos = extraer_partidos()
-
-    if nuevos > 0:
-        enviar_telegram(
-            f"🏓 <b>Czech Liga Pro</b>\n"
-            f"✅ {nuevos} partidos nuevos guardados\n"
-            f"📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-        )
-
+    nuevos       = extraer_partidos()
     predicciones = generar_predicciones_destacadas()
-    for p in predicciones:
-        enviar_telegram(
-            f"🎯 <b>PREDICCION ALTA CONFIANZA</b>\n"
-            f"⚔️ {p['local']} vs {p['visitante']}\n"
-            f"🏆 Ganador: <b>{p['ganador']}</b>\n"
-            f"📊 Confianza: <b>{p['confianza']}%</b>"
-        )
+    guardar_alertas(nuevos, predicciones)
 
-    print(f"\n✅ Scheduler completado.")
-    print(f"   Partidos nuevos   : {nuevos}")
-    print(f"   Predicciones altas: {len(predicciones)}")
+    print(f"\nScheduler completado.")
+    print(f"  Partidos nuevos   : {nuevos}")
+    print(f"  Predicciones altas: {len(predicciones)}")
 
 if __name__ == '__main__':
     ejecutar()
